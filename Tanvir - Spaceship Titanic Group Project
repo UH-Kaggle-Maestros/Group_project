@@ -1,0 +1,220 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+%matplotlib inline
+
+train = pd.read_csv('train.csv')
+
+train_df = train.drop('Name', axis=1)
+
+train_df.columns
+
+train_df[['PassengerGroup', 'PassengerNumber']] = train_df['PassengerId'].str.split('_', expand=True)
+
+train_df
+
+columns_to_impute = ['Age', 'RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck']
+
+'''
+def impute_mean_based_on_group(df, group_column, columns_to_impute):
+    for column in columns_to_impute:
+        df[column] = df.groupby(group_column)[column].transform(lambda x: x.fillna(x.mean()))
+    return df
+'''
+
+def impute_mean_based_on_group(df, group_column, columns_to_impute):
+    df[group_column] = df[group_column].fillna('Unknown')  # Replace empty cells with 'Unknown' or any other suitable value
+    for column in columns_to_impute:
+        df[column] = df[column].fillna(df.groupby(group_column)[column].transform('mean'))
+    return df
+
+train_df = impute_mean_based_on_group(train_df, 'HomePlanet', columns_to_impute)
+
+train_df
+
+'''home = pd.get_dummies(train_df['HomePlanet'])
+cryosleep = pd.get_dummies(train_df['CryoSleep'], prefix='Cryosleep', drop_first=True)
+destination = pd.get_dummies(train_df['Destination'])#,drop_first=True)
+vip = pd.get_dummies(train_df['VIP'], prefix='VIP', drop_first=True)
+transported = pd.get_dummies(train_df['Transported'], prefix='Transported?', drop_first=True)
+
+train_df = train_df.drop(['HomePlanet', 'CryoSleep', 'Destination', 'VIP', 'Transported'], axis=1)
+
+train_df = pd.concat([train_df, home, cryosleep, destination, vip, transported], axis=1)
+'''
+
+def encode_and_concatenate_columns(df, columns):
+    encoded_dfs = []
+    for column in columns:
+        if column == 'HomePlanet' or column == 'Destination':
+            encoded_df = pd.get_dummies(df[column], prefix=column)
+        else:
+            encoded_df = pd.get_dummies(df[column], prefix=column, drop_first=True)
+        encoded_dfs.append(encoded_df)
+    df = df.drop(columns, axis=1)
+    df = pd.concat([df] + encoded_dfs, axis=1)
+    return df
+
+columns_to_encode = ['HomePlanet', 'CryoSleep', 'Destination', 'VIP', 'Transported']
+train_df = encode_and_concatenate_columns(train_df, columns_to_encode)
+
+train_df
+
+train_df = train_df.drop(['PassengerId', 'Cabin', 'PassengerGroup', 'PassengerNumber'], axis=1)
+
+train_df
+
+
+
+# Visualising missing data
+sns.heatmap(train_df.isnull(), yticklabels=False,cbar=False, cmap='viridis')
+
+for column in train_df.columns:
+  print(f'\nMissing {column} values = {len(train_df[train_df[column].isna()])}')
+
+train_df = train_df.dropna()
+
+# Visualising missing data
+sns.heatmap(train_df.isnull(), yticklabels=False,cbar=False, cmap='viridis')
+
+len(train_df.columns)
+
+from sklearn.model_selection import train_test_split
+X_train, X_test, y_train, y_test = train_test_split(train_df.drop('Transported_True',axis=1), 
+                                                    train_df['Transported_True'], test_size=0.25, 
+                                                    random_state=101)
+
+X_train
+
+from sklearn.linear_model import LogisticRegression
+
+logmodel = LogisticRegression()
+logmodel.fit(X_train,y_train)
+
+predictions = logmodel.predict(X_test)
+
+from sklearn.metrics import classification_report
+
+accuracy = logmodel.score(X_test, y_test)
+print("Accuracy:", accuracy,'\n')
+
+print(classification_report(y_test,predictions))
+
+test = pd.read_csv('test.csv')
+
+test_df = test.drop('Name', axis=1)
+
+# Visualising missing data
+sns.heatmap(test_df.isnull(), yticklabels=False,cbar=False, cmap='viridis')
+
+test_df = impute_mean_based_on_group(test_df, 'HomePlanet', columns_to_impute)
+
+columns_to_encode = ['HomePlanet', 'CryoSleep', 'Destination', 'VIP']
+test_df = encode_and_concatenate_columns(test_df, columns_to_encode)
+
+test_df
+
+# Visualising missing data
+sns.heatmap(test_df.isnull(), yticklabels=False,cbar=False, cmap='viridis')
+
+len(test_df)
+
+test_predictions = logmodel.predict(test_df.drop(['PassengerId', 'Cabin'], axis=1))
+
+result = {'PassengerId': np.array(test_df.PassengerId), 'Transported': test_predictions}
+result_df = pd.DataFrame(result)
+result_df.Transported = result_df.Transported.map({0:'False', 1:'True'})
+result_df
+
+result_df.to_csv('Logistic regression.csv', index=False)
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
+
+pipe = make_pipeline(StandardScaler(), LogisticRegression())
+
+pipe.fit(X_train, y_train)  # apply scaling on training data
+
+accuracy = pipe.score(X_test, y_test)
+print("Accuracy:", accuracy,'\n')
+
+print(classification_report(y_test,predictions))
+
+test_predictions = logmodel.predict(test_df.drop(['PassengerId', 'Cabin'], axis=1))
+
+result = {'PassengerId': np.array(test_df.PassengerId), 'Transported': test_predictions}
+result_df = pd.DataFrame(result)
+result_df.Transported = result_df.Transported.map({0:'False', 1:'True'})
+result_df
+
+result_df.to_csv('Logistic regression_scaled.csv', index=False)
+
+### Random Forest
+
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error, r2_score
+
+# Scale features using StandardScaler
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+
+# Build the random forest model
+RFfit = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42)
+RFfit.fit(X_train_scaled, y_train)
+y_pred = RFfit.predict(X_test_scaled)
+
+mse = mean_squared_error(y_test, y_pred)
+r2 = r2_score(y_test, y_pred)
+
+print("Mean Squared Error:", mse)
+print("R-squared:", r2)
+
+
+test_predictions_rf = RFfit.predict(test_df.drop(['PassengerId', 'Cabin'], axis=1))
+
+test_predictions_rf.min(), test_predictions_rf.max()
+
+result_rf = {'PassengerId': np.array(test_df.PassengerId), 'Transported': test_predictions_rf}
+result_rf_df = pd.DataFrame(result_rf)
+
+# Coverting values below 0.5 to zero and above 0.5 to 1
+result_rf_df['Transported'] = result_rf_df['Transported'].apply(lambda x: '0' if x < 0.5 else '1')
+
+
+result_rf_df.Transported = result_rf_df.Transported.map({0:'False', 1:'True'})
+result_rf_df
+
+
+result_rf_df.to_csv('Random Forest.csv', index=False)
+
+###--------------------------###
+
+######## Random Forest Classifier
+
+from sklearn.ensemble import RandomForestClassifier
+rfc = RandomForestClassifier(n_estimators=10000)
+rfc.fit(X_train, y_train)
+
+rfc_pred = rfc.predict(X_test)
+
+accuracy = rfc.score(X_test, y_test)
+print("Accuracy:", accuracy)
+
+from sklearn.metrics import confusion_matrix
+
+print(confusion_matrix(y_test,rfc_pred))
+
+print(classification_report(y_test,rfc_pred))
+
+test_predictions_rf = rfc.predict(test_df.drop(['PassengerId', 'Cabin'], axis=1))
+
+result_rf = {'PassengerId': np.array(test_df.PassengerId), 'Transported': test_predictions_rf}
+result_rf_df = pd.DataFrame(result_rf)
+
+result_rf_df.Transported = result_rf_df.Transported.map({0:'False', 1:'True'})
+result_rf_df
+
+result_rf_df.to_csv('Random Forest Classifier.csv', index=False)
